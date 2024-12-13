@@ -118,4 +118,3 @@ Distributed under the MIT License. See `LICENSE.txt` for more information.
 
 Rahmad Kurniawan
 - Email: rahmadkurniawan.ai@gmail.com
-```
