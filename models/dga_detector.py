@@ -1,46 +1,34 @@
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import numpy as np
+import torch
+from transformers import BertModel
 
-class DGADetector(nn.Module):
-    def __init__(self, input_dim=256, hidden_dim=128):
-        super(DGADetector, self).__init__()
-        
-        # 1D Convolutional Layer
-        self.conv1d = nn.Conv1d(in_channels=1, out_channels=64, kernel_size=3, padding=1)
-        
-        # Self-Attention Mechanism
-        self.query = nn.Linear(input_dim, hidden_dim)
-        self.key = nn.Linear(input_dim, hidden_dim)
-        self.value = nn.Linear(input_dim, hidden_dim)
-        
-        # Classification layers
-        self.fc1 = nn.Linear(hidden_dim, 64)
-        self.fc2 = nn.Linear(64, 1)
-        
-        self.dropout = nn.Dropout(0.3)
+class DGA_Detection_Model(nn.Module):
+    def __init__(self, phonetic_vocab_size, embedding_dim, semantic_model):
+        super(DGA_Detection_Model, self).__init__()
+        self.phonetic_embedding = nn.Embedding(phonetic_vocab_size, embedding_dim)
+        self.semantic_model = semantic_model
+        self.fc_phonetic = nn.Linear(embedding_dim, 128)
+        self.fc_semantic = nn.Linear(768, 128)
+        self.fc_combined = nn.Linear(256, 64)
+        self.fc_output = nn.Linear(64, 1)
+        self.sigmoid = nn.Sigmoid()
     
-    def forward(self, x):
-        # 1D Convolution
-        x = x.unsqueeze(1)  # Add channel dimension
-        x = F.relu(self.conv1d(x))
-        x = x.squeeze(1)
+    def forward(self, phonetic_token_ids, semantic_token_ids, semantic_attention_mask):
+        # Phonetic embedding
+        phonetic_embed = self.phonetic_embedding(phonetic_token_ids)
+        phonetic_embed = phonetic_embed.mean(dim=1)  # Mean pooling
+        phonetic_embed = self.fc_phonetic(phonetic_embed)
         
-        # Self-Attention
-        Q = self.query(x)
-        K = self.key(x)
-        V = self.value(x)
+        # Semantic embedding
+        semantic_outputs = self.semantic_model(input_ids=semantic_token_ids, attention_mask=semantic_attention_mask)
+        semantic_embed = semantic_outputs.last_hidden_state[:, 0, :]  # [CLS] token
+        semantic_embed = self.fc_semantic(semantic_embed)
         
-        # Attention Scores
-        attention_scores = torch.softmax(torch.matmul(Q, K.transpose(-2, -1)) / np.sqrt(K.size(-1)), dim=-1)
+        # Concatenate embeddings
+        concatenated = torch.cat((phonetic_embed, semantic_embed), dim=1)
         
-        # Weighted sum
-        attended_values = torch.matmul(attention_scores, V)
-        
-        # Classification
-        x = F.relu(self.fc1(attended_values.mean(dim=1)))
-        x = self.dropout(x)
-        x = torch.sigmoid(self.fc2(x))
-        
+        # Classifier layers
+        x = nn.functional.relu(self.fc_combined(concatenated))
+        x = self.fc_output(x)
+        x = self.sigmoid(x)
         return x
