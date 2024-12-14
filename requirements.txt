@@ -4,8 +4,7 @@ pandas==1.4.4
 pandas-gbq==0.19.1
 pandas-ml==0.6.1
 sentence-transformers==2.2.2
-sklearn==0.0.post1
-sklearn-crfsuite==0.3.6
+scikit-learn
 torch==2.1.0
 torchvision==0.14.1
 transformers==4.26.1
