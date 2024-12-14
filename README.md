@@ -22,9 +22,12 @@ This research project presents an approach to detecting Domain Generation Algori
 dga_detection/
 │
 ├── data/                # Dataset management
-│   └── dataset_loader.py
+│   └── dataloader.py
 │
 ├── preprocessing/        # Feature extraction
+│   ├── min_bpe           # BPE Tokenization Implementation
+│       ├──  base.py
+│       └──  basic.py
 │   ├── semantic_preprocessor.py
 │   └── phonetic_preprocessor.py
 │
