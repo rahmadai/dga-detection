@@ -1,5 +1,6 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
+import wordninja
 
 class DataLoader:
     def __init__(self, benign_path, dga_path):
@@ -12,7 +13,15 @@ class DataLoader:
         # Load datasets
         benign_df = pd.read_csv(self.benign_path)
         dga_df = pd.read_csv(self.dga_path)
-        
+
+        # Extract domain name without TLD
+        benign_df['domain'] = benign_df['domain'].apply(lambda x: x.split('.')[0])
+        dga_df['domain'] = dga_df['domain'].apply(lambda x: x.split('.')[0])
+
+        # Split by word using wordninja
+        benign_df['domain'] = benign_df['domain'].apply(lambda x: ' '.join(wordninja.split(x)))
+        dga_df['domain'] = dga_df['domain'].apply(lambda x: ' '.join(wordninja.split(x)))
+
         # Add labels
         benign_df['label'] = 0
         dga_df['label'] = 1

@@ -8,9 +8,10 @@ class PhoneticPreprocessor:
         self.vocab_size = vocab_size
         self.scaler = StandardScaler()
     
-    def train_tokenizer(self, train_domains):
+    def train_tokenizer(self, train_domains, path):
         train_text = '\n'.join(train_domains)
         self.tokenizer.train(train_text, self.vocab_size, verbose=False)
+        self.tokenizer.save(path)
     
     def tokenize_domain(self, domain, max_length=128):
         token_ids = self.tokenizer.encode(domain)
