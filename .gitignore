@@ -189,3 +189,4 @@ de/cdc/cdk.out/
 *.model
 *.vocab
 *.pkl
+*.pth
