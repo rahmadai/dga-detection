@@ -184,3 +184,8 @@ de/cdc/cdk.out/
 
 #vscode setting
 .vscode/
+
+# results model
+*.model
+*.vocab
+*.pkl
