@@ -1,9 +1,8 @@
-epitran==1.25.1
-numpy==1.24.4
+numpy==1.26.4
 pandas==1.4.4
 pandas-gbq==0.19.1
 pandas-ml==0.6.1
-sentence-transformers==2.2.2
+sentence-transformers==3.3.1
 scikit-learn
-torch==2.1.0
-transformers==4.26.1
+torch==2.5.1
+transformers==4.48.1

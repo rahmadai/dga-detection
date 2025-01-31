@@ -1,9 +1,17 @@
-from transformers import BertTokenizer
-
+from sentence_transformers import SentenceTransformer, models
+from sentence_transformers.models import StaticEmbedding
 class SemanticPreprocessor:
-    def __init__(self):
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    def __init__(self, device='cpu'):
+        bge_static_embedding = StaticEmbedding.from_model2vec("FlukeTJ/bge-m3-m2v-distilled-256")
+        self.semantic_model = SentenceTransformer(modules=[bge_static_embedding], device=device)
     
-    def tokenize_domain(self, domain, max_length=128):
-        encoding = self.tokenizer(domain, padding='max_length', truncation=True, max_length=max_length, return_tensors='pt')
-        return encoding['input_ids'].squeeze().tolist(), encoding['attention_mask'].squeeze().tolist()
+    def tokenize_domain(self, domain):
+        """
+        Generates the static embeddings for the input domain.
+        Returns:
+          - list of float: the fixed-size embedding for the domain.
+        """
+        # Encode the domain using the SentenceTransformer
+        domain_embedding = self.semantic_model.encode(domain, convert_to_tensor=True)
+        
+        return domain_embedding.squeeze().tolist()

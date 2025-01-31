@@ -61,8 +61,9 @@ class PhoneticPreprocessor:
         features = df[['vowels', 'consonants', 'syllables', 'vowel_consonant_ratio']].values
         return features
     
-    def scale_features(self, train_features, val_features):
+    def scale_features(self, train_features, val_features, test_features):
         self.scaler.fit(train_features)
         train_scaled = self.scaler.transform(train_features)
         val_scaled = self.scaler.transform(val_features)
-        return train_scaled, val_scaled
+        test_scaled = self.scaler.transform(test_features)
+        return train_scaled, val_scaled, test_scaled
