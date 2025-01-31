@@ -2,7 +2,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader as TorchDataLoader, Dataset
 from torch import nn
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 import numpy as np
 from transformers import BertModel
 from sentence_transformers import SentenceTransformer, util
@@ -15,11 +15,17 @@ from preprocessing.semantic_preprocessor import SemanticPreprocessor
 from models.dga_detector import DGA_Detection_Model
 import pickle
 from loguru import logger
+import os
+
 
 # Set random seed for reproducibility
 torch.manual_seed(42)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# Configure logger
+logger.add("logs/training.log", level="INFO")  # For detailed training logs
+logger.add("logs/errors.log", level="ERROR") # For errors
 logger.info(f"Using device: {device}")
 
 # Load a model from the HuggingFace hub
@@ -51,12 +57,12 @@ if train_model == 1:
     phonetic_preprocessor = PhoneticPreprocessor(vocab_size=512)
     train_domains = train_df['domain'].tolist()
     phonetic_preprocessor.train_tokenizer(train_domains, save_phonetic_model)
-    logger.info("Phonetic tokenizer trained and saved.")
+    logger.info(f"Phonetic tokenizer trained and saved to: {save_phonetic_model}")
 
     # Tokenize domains
     train_phonetic_tokens = []
     train_phonetic_masks = []
-    logger.info("Start tokenize phonetic tokens...")
+    logger.info("Start tokenize phonetic tokens for training...")
     for domain in train_df['domain']:
         tokens, masks = phonetic_preprocessor.tokenize_domain(domain)
         train_phonetic_tokens.append(tokens)
@@ -64,13 +70,15 @@ if train_model == 1:
 
     val_phonetic_tokens = []
     val_phonetic_masks = []
+    logger.info("Start tokenize phonetic tokens for validation...")
     for domain in val_df['domain']:
         tokens, masks = phonetic_preprocessor.tokenize_domain(domain)
         val_phonetic_tokens.append(tokens)
         val_phonetic_masks.append(masks)
-    
+
     test_phonetic_tokens = []
     test_phonetic_masks = []
+    logger.info("Start tokenize phonetic tokens for testing...")
     for domain in test_df['domain']:
         tokens, masks = phonetic_preprocessor.tokenize_domain(domain)
         test_phonetic_tokens.append(tokens)
@@ -88,17 +96,19 @@ if train_model == 1:
 
     # Tokenize domains
     train_semantic_embeds = []
-    logger.info("Start tokenize embedding domains...")
+    logger.info("Start tokenize embedding domains for training...")
     for domain in train_df['domain']:
         embed = semantic_preprocessor.tokenize_domain(domain)
         train_semantic_embeds.append(embed)
 
     val_semantic_embeds = []
+    logger.info("Start tokenize embedding domains for validation...")
     for domain in val_df['domain']:
         embed = semantic_preprocessor.tokenize_domain(domain)
         val_semantic_embeds.append(embed)
 
     test_semantic_embeds = []
+    logger.info("Start tokenize embedding domains for testing...")
     for domain in test_df['domain']:
         embed = semantic_preprocessor.tokenize_domain(domain)
         test_semantic_embeds.append(embed)
@@ -116,7 +126,6 @@ if train_model == 1:
     model = DGA_Detection_Model(phonetic_vocab_size, embedding_dim, semantic_model)
 
     # Set up training parameters
-    
     model.to(device)
 
     criterion = nn.BCELoss()
@@ -127,15 +136,24 @@ if train_model == 1:
     val_dataloader = TorchDataLoader(val_dataset, batch_size=32, shuffle=False)
     test_dataloader = TorchDataLoader(test_dataset, batch_size=32, shuffle=False) # Create test dataloader
     
+    # Log training parameters
+    logger.info(f"Training Parameters:")
+    logger.info(f"  - Device: {device}")
+    logger.info(f"  - Learning Rate: 1e-4")
+    logger.info(f"  - Batch Size: 32")
+    logger.info(f"  - Loss Function: BCELoss")
+    logger.info(f"  - Optimizer: Adam")
+    logger.info(f"  - Number of Epochs: 30")
+    
     # Train and validate the model
     logger.info("Starting training...")
-    num_epochs = 30
+    num_epochs = 5
     for epoch in range(num_epochs):
         model.train()
         train_loss = 0.0
-        for batch in train_dataloader: # Use train_dataloader
+        for step, batch in enumerate(train_dataloader):
             phonetic_token_ids = batch['phonetic_token_ids'].to(device)
-            semantic_embeds = batch['semantic_token_ids'].to(device) # Move to device
+            semantic_embeds = batch['semantic_token_ids'].to(device)
             labels = batch['labels'].to(device)
             
             optimizer.zero_grad()
@@ -147,30 +165,45 @@ if train_model == 1:
             optimizer.step()
             
             train_loss += loss.item() * phonetic_token_ids.size(0)
+            
+            if step % 50 == 0: # log every 50 steps
+                logger.info(f'Epoch: {epoch+1}, Step: {step}, Train Loss: {loss.item():.4f}')
         
-        train_loss = train_loss / len(train_dataloader.dataset) # use train_dataloader
-        logger.info(f'Epoch: {epoch+1}, Train Loss: {train_loss:.4f}')
+        train_loss = train_loss / len(train_dataloader.dataset)
+        logger.info(f'Epoch: {epoch+1}, Average Train Loss: {train_loss:.4f}')
         
         # Validation
         model.eval()
         val_loss = 0.0
+        all_predicted_labels = []
+        all_true_labels = []
         with torch.no_grad():
-            for batch in val_dataloader: # Use val_dataloader
+            for batch in val_dataloader:
                 phonetic_token_ids = batch['phonetic_token_ids'].to(device)
-                semantic_embeds = batch['semantic_token_ids'].to(device)  # Move to device
+                semantic_embeds = batch['semantic_token_ids'].to(device)
                 labels = batch['labels'].to(device)
                 
                 outputs = model(phonetic_token_ids, semantic_embeds)
                 loss = criterion(outputs.squeeze(), labels)
-                
                 val_loss += loss.item() * phonetic_token_ids.size(0)
+
+                predicted_labels = (outputs.squeeze() > 0.5).float()
+                all_predicted_labels.extend(predicted_labels.cpu().numpy())
+                all_true_labels.extend(labels.cpu().numpy())
         
-        val_loss = val_loss / len(val_dataloader.dataset) # use val_dataloader
-        logger.info(f'Epoch: {epoch+1}, Validation Loss: {val_loss:.4f}')
+        val_loss = val_loss / len(val_dataloader.dataset)
+        # Calculate metrics
+        accuracy = accuracy_score(all_true_labels, all_predicted_labels)
+        precision = precision_score(all_true_labels, all_predicted_labels, zero_division=0)
+        recall = recall_score(all_true_labels, all_predicted_labels, zero_division=0)
+        f1 = f1_score(all_true_labels, all_predicted_labels, zero_division=0)
+
+        logger.info(f'Epoch: {epoch+1}, Validation Loss: {val_loss:.4f}, Accuracy: {accuracy:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}, F1 Score: {f1:.4f}')
 
     # Save the model
-    torch.save(model.state_dict(), 'dga_detection_model.pth')
-    logger.info("Model training completed and model saved.")
+    model_save_path = 'dga_detection_model.pth'
+    torch.save(model.state_dict(), model_save_path)
+    logger.info(f"Model training completed and model saved to: {model_save_path}")
 
     # --- Start of Inference/Testing Code ---
     logger.info("Starting model inference/testing...")
@@ -199,8 +232,8 @@ if train_model == 1:
     precision = tp / (tp + fp)
     recall = tp / (tp + fn)
     f1_score = 2 * (precision * recall) / (precision + recall)
-    logger.info(f"Accuracy: {accuracy}")
-    logger.info(f"Precision: {precision}")
-    logger.info(f"Recall: {recall}")
-    logger.info(f"F1 Score: {f1_score}")
+    logger.info(f"Test Accuracy: {accuracy}")
+    logger.info(f"Test Precision: {precision}")
+    logger.info(f"Test Recall: {recall}")
+    logger.info(f"Test F1 Score: {f1_score}")
     logger.info("Inference completed.")

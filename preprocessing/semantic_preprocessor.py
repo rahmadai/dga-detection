@@ -1,7 +1,10 @@
 from sentence_transformers import SentenceTransformer, models
 from sentence_transformers.models import StaticEmbedding
+import torch
 class SemanticPreprocessor:
-    def __init__(self, device='cpu'):
+    def __init__(self):
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
         bge_static_embedding = StaticEmbedding.from_model2vec("FlukeTJ/bge-m3-m2v-distilled-256")
         self.semantic_model = SentenceTransformer(modules=[bge_static_embedding], device=device)
     
