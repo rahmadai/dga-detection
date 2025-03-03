@@ -16,55 +16,67 @@ from models.dga_detector import DGA_Detection_Model
 import pickle
 from loguru import logger
 import os
-
+import time
 
 # Set random seed for reproducibility
 torch.manual_seed(42)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+model_config = "P512_S256"
+
 # Configure logger
-logger.add("logs/training.log", level="INFO")  # For detailed training logs
-logger.add("logs/errors.log", level="ERROR") # For errors
+logger.add(f"logs/training_{model_config}.log", level="INFO")  # For detailed training logs
+logger.add(f"logs/errors_{model_config}.log", level="ERROR") # For errors
 logger.info(f"Using device: {device}")
 
 # Load a model from the HuggingFace hub
 bge_static_embedding = StaticEmbedding.from_model2vec("FlukeTJ/bge-m3-m2v-distilled-256")
 # Define Hyperparameters
 semantic_model = SentenceTransformer(modules=[bge_static_embedding], device=device)
-phonetic_vocab_size = 512
-embedding_dim = 128
+phonetic_embedding_size = 512
+semantic_embedding_size = 128
 
 # 0 for save dataloader
 # 1 for load dataloader & train model
 train_model = 1
+train_vocab = 0
 
-if train_model == 1:
+if train_model == 0:
     logger.info("Starting data preprocessing...")
     # Instantiate DataLoader (your custom DataLoader, not torch.utils.data.DataLoader)
-    data_loader = DataLoader(benign_path='data/benign_10k.csv', dga_path='data/dga_10k.csv')
+    data_loader = DataLoader(benign_path='benign_500k.csv', dga_path='dga_500k.csv')
+    # data_loader = DataLoader(benign_path='data/benign_10k.csv', dga_path='data/dga_10k.csv')
     data_loader.load_and_split_data()
     train_df = data_loader.get_train_df()
     val_df = data_loader.get_val_df()
     test_df = data_loader.get_test_df() # Get test data
-    # train_df = train_df.head(10000)
-    # val_df = val_df.head(1000)
-    # test_df = test_df.head(1000) # Limit test data for faster testing
+    # train_df = train_df.head(100)
+    # val_df = val_df.head(100)
+    # test_df = test_df.head(100) # Limit test data for faster testing
 
     # Instantiate PhoneticPreprocessor
-    logger.info("Training phonetic tokenizer...")
-    save_phonetic_model = 'results/bpe_models'
-    phonetic_preprocessor = PhoneticPreprocessor(vocab_size=512)
-    train_domains = train_df['domain'].tolist()
-    phonetic_preprocessor.train_tokenizer(train_domains, save_phonetic_model)
-    logger.info(f"Phonetic tokenizer trained and saved to: {save_phonetic_model}")
+    if train_vocab == 1:
+        logger.info("Training phonetic tokenizer...")
+        save_phonetic_model = 'results/bpe_models_ipa_full'
+        phonetic_preprocessor = PhoneticPreprocessor(vocab_size=512)
+        train_domains = train_df['domain'].tolist()
+        # print(train_domains)
+        phonetic_preprocessor.train_tokenizer(train_domains, save_phonetic_model)
+        logger.info(f"Phonetic tokenizer trained and saved to: {save_phonetic_model}")
+    elif train_vocab == 0:
+        logger.info("Use existing phonetic tokenizer")
+        save_phonetic_model = 'results/512_vocab_size/bpe_models_ipa_full.model'
+        phonetic_preprocessor = PhoneticPreprocessor(vocab_size=512)
+        phonetic_preprocessor.load_tokenizer(save_phonetic_model)
+        logger.info(f"Phonetic tokenizer loaded: {save_phonetic_model}")
 
     # Tokenize domains
     train_phonetic_tokens = []
     train_phonetic_masks = []
     logger.info("Start tokenize phonetic tokens for training...")
     for domain in train_df['domain']:
-        tokens, masks = phonetic_preprocessor.tokenize_domain(domain)
+        tokens, masks = phonetic_preprocessor.tokenize_domain(domain, max_length=phonetic_embedding_size)
         train_phonetic_tokens.append(tokens)
         train_phonetic_masks.append(masks)
 
@@ -72,7 +84,7 @@ if train_model == 1:
     val_phonetic_masks = []
     logger.info("Start tokenize phonetic tokens for validation...")
     for domain in val_df['domain']:
-        tokens, masks = phonetic_preprocessor.tokenize_domain(domain)
+        tokens, masks = phonetic_preprocessor.tokenize_domain(domain, max_length=phonetic_embedding_size)
         val_phonetic_tokens.append(tokens)
         val_phonetic_masks.append(masks)
 
@@ -80,7 +92,7 @@ if train_model == 1:
     test_phonetic_masks = []
     logger.info("Start tokenize phonetic tokens for testing...")
     for domain in test_df['domain']:
-        tokens, masks = phonetic_preprocessor.tokenize_domain(domain)
+        tokens, masks = phonetic_preprocessor.tokenize_domain(domain, max_length=phonetic_embedding_size)
         test_phonetic_tokens.append(tokens)
         test_phonetic_masks.append(masks)
 
@@ -118,12 +130,37 @@ if train_model == 1:
     val_dataset = DomainDataset(val_df, val_phonetic_tokens, val_phonetic_masks, val_semantic_embeds, val_phonetic_scaled)
     test_dataset = DomainDataset(test_df, test_phonetic_tokens, test_phonetic_masks, test_semantic_embeds, test_phonetic_scaled) # Create test dataset
 
-    logger.info("Data preprocessing completed.")
+    # Save the processed dataset
+    data_output_path = 'results/P256_S256_dataset/processed_dataset.pkl'
+
+    processed_data = {
+        'train_dataset': train_dataset,
+        'val_dataset': val_dataset,
+        'test_dataset': test_dataset
+    }
+
+    with open(data_output_path, 'wb') as f:
+        pickle.dump(processed_data, f)
+        
+    logger.info(f"Data preprocessing completed and saved to: {data_output_path}")
+
+elif train_model == 1:
+    # Load preprocessed datasets
+    data_output_path = 'results/processed_dataset.pkl'
+    
+    logger.info(f"Loading preprocessed data from: {data_output_path}")
+    with open(data_output_path, 'rb') as f:
+        loaded_data = pickle.load(f)
+
+    train_dataset = loaded_data['train_dataset']
+    val_dataset = loaded_data['val_dataset']
+    test_dataset = loaded_data['test_dataset']
+
 
     logger.info("Loading datasets and starting model training...")
 
     # Instantiate model
-    model = DGA_Detection_Model(phonetic_vocab_size, embedding_dim, semantic_model)
+    model = DGA_Detection_Model(phonetic_embedding_size, semantic_embedding_size, semantic_model)
 
     # Set up training parameters
     model.to(device)
@@ -155,6 +192,13 @@ if train_model == 1:
             phonetic_token_ids = batch['phonetic_token_ids'].to(device)
             semantic_embeds = batch['semantic_token_ids'].to(device)
             labels = batch['labels'].to(device)
+
+            # Testing fill zero for semantic
+            # semantic_embeds = torch.zeros_like(semantic_embeds).to(device)
+            # print("phonetic_token_ids", phonetic_token_ids)
+            # print("semantic_embeds", semantic_embeds)
+            # print("labels", labels)
+            # time.sleep(1000)
             
             optimizer.zero_grad()
             
@@ -201,7 +245,7 @@ if train_model == 1:
         logger.info(f'Epoch: {epoch+1}, Validation Loss: {val_loss:.4f}, Accuracy: {accuracy:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}, F1 Score: {f1:.4f}')
 
     # Save the model
-    model_save_path = 'dga_detection_model.pth'
+    model_save_path = f"dga_detection_{model_config}.pth"
     torch.save(model.state_dict(), model_save_path)
     logger.info(f"Model training completed and model saved to: {model_save_path}")
 
