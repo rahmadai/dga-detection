@@ -139,7 +139,7 @@ class Tokenizer:
 
     def load(self, model_file):
         """Inverse of save() but only for the model file"""
-        assert model_file.endswith(".model")
+        # assert model_file.endswith(".model")
         # read the model file
         merges = {}
         special_tokens = {}

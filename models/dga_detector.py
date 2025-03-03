@@ -13,6 +13,16 @@ class DGA_Detection_Model(nn.Module):
         self.fc_combined = nn.Linear(128 + 128, 64)  # Adjusted input size
         self.fc_output = nn.Linear(64, 1)
         self.sigmoid = nn.Sigmoid()
+
+    # def __init__(self, phonetic_embedding_dim, semantic_embedding_dim, semantic_model):
+    #     super(DGA_Detection_Model, self).__init__()
+    #     self.phonetic_embedding = nn.Embedding(phonetic_embedding_dim, phonetic_embedding_dim/2)
+    #     self.semantic_model = semantic_model
+    #     self.fc_phonetic = nn.Linear(phonetic_embedding_dim, phonetic_embedding_dim/2)
+    #     self.fc_semantic = nn.Linear(semantic_embedding_dim, semantic_embedding_dim/2)
+    #     self.fc_combined = nn.Linear(phonetic_embedding_dim + semantic_embedding_dim, 64)  # Adjusted input size
+    #     self.fc_output = nn.Linear(64, 1)
+    #     self.sigmoid = nn.Sigmoid()
     
     def forward(self, phonetic_token, semantic_embed):
         # Phonetic embedding
